@@ -17,6 +17,7 @@ RUN apt-get update && \
 # DEBUG
 
 RUN conda install -y -c conda-forge python=3.8 mamba \
+    && mamba install -y openssl \
      && mamba install -y \
     -c conda-forge \
     -c bioconda \
