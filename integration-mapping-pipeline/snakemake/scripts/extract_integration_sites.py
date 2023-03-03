@@ -1,5 +1,5 @@
-import subprocess
 import os
+import subprocess
 import sys
 
 OUTDIR = sys.argv[1]
