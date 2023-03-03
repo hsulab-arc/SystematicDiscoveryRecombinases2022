@@ -18,7 +18,7 @@ RUN apt-get update && \
 
 RUN conda update -n base -c defaults conda && \
     conda install -y -c conda-forge python=3.8 mamba &&  \
-     && mamba install -y \
+    mamba install -y \
     -c conda-forge \
     -c bioconda \
     -c r \
