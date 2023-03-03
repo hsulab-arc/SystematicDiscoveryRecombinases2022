@@ -1,0 +1,398 @@
+configfile: 'config.yml'
+
+from os.path import basename, join
+from glob import glob
+from functions import *
+
+WD = config['wd']
+FASTQ_DIR = join(WD,config['fastq_dir'])
+GENOME_DIR = join(WD,config['genome_dir'])
+DONOR_MAP_DIR = join(WD,config['donor_map_dir'])
+DONOR_CHECK_DIR = join(WD,config['donor_check_dir'])
+BLACKLIST_DIR = join(WD,config['blacklist_dir'])
+CLEAN_DIR = join(WD,config['clean_dir'])
+TRIMMED_DIR = join(WD,config['trimmed_dir'])
+DONOR_ALIGNED_DIR = join(WD,config['donor_aligned_dir'])
+DONOR_CHECK_ALIGNED_DIR = join(WD, config['donor_check_aligned_dir'])
+HUMAN_ALIGNED_DIR = join(WD,config['human_aligned_dir'])
+HUMAN_BOTH_ALIGNED_DIR = join(WD,config['human_both_aligned_dir'])
+DONOR_BOTH_ALIGNED_DIR = join(WD, config['donor_both_aligned_dir'])
+READ_ANALYSIS_DIR = join(WD,config['read_analysis_dir'])
+JUNCTION_READS_DIR = join(WD,config['junction_reads_dir'])
+DONOR_READS_DIR = join(WD, config['donor_reads_dir'])
+MGEFINDER_DIR = join(WD,config['mgefinder_dir'])
+KMER_FLANKS_DIR = join(WD,config['kmer_flanks_dir'])
+UMI_COUNTS_DIR = join(WD,config['umi_counts_dir'])
+RAW_COUNTS_DIR = join(WD,config['raw_counts_dir'])
+TARGET_SITES_DIR = join(WD,config['target_sites_dir'])
+RESULTS_DIR = join(WD,config['results_dir'])
+
+SAMPLES = [basename(f).split('.')[0] for f in glob(join(FASTQ_DIR,'*R1.fq.gz'))]
+
+rule all:
+    input:
+        join(RESULTS_DIR, "raw_counts.filtered.tsv")
+    run: pass
+
+rule clean_umi:
+    input:
+        r1=join(FASTQ_DIR,"{sample}.R1.fq.gz"),
+        r2=join(FASTQ_DIR,"{sample}.R2.fq.gz")
+    output:
+        r1=join(CLEAN_DIR,"{sample}.R1.fq.gz"),
+        r2=join(CLEAN_DIR,"{sample}.R2.fq.gz")
+    params:
+        metadata=join(WD, "metadata.tsv"),
+        sample='{sample}'
+    run:
+        clean_umi(input,output,params)
+
+rule bwa_index_donor:
+    input:
+        fna=join(DONOR_MAP_DIR,"{sample}.fasta")
+    output:
+        amb=join(DONOR_MAP_DIR,"{sample}.fasta.amb")
+    shell:
+        """
+        bwa index {input.fna}
+        """
+
+rule bwa_index_donor_check:
+    input:
+        donor_check=join(DONOR_CHECK_DIR,"donor_check.fna")
+    output:
+        amb=join(DONOR_CHECK_DIR,"donor_check.fna.amb")
+    shell:
+        """
+        bwa index {input.donor_check}
+        """
+
+
+rule fastp:
+    input:
+        r1=join(CLEAN_DIR,"{sample}.R1.fq.gz"),
+        r2=join(CLEAN_DIR,"{sample}.R2.fq.gz")
+    output:
+        r1=join(TRIMMED_DIR,"{sample}.R1.fq.gz"),
+        r2=join(TRIMMED_DIR,"{sample}.R2.fq.gz")
+    params:
+        outdir=TRIMMED_DIR,outprefix=join(TRIMMED_DIR,"{sample}")
+    shell:
+        """
+        fastp --detect_adapter_for_pe --adapter_sequence=AGATCGGAAGAGCACACGTCTGAACTCCAGTCA --adapter_sequence_r2=AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT -i {input.r1} -I {input.r2} -o {output.r1} -O {output.r2}
+        """
+
+rule fastqc:
+    input:
+        raw_r1=join(FASTQ_DIR,"{sample}.R1.fq.gz"),
+        raw_r2=join(FASTQ_DIR,"{sample}.R2.fq.gz"),
+        trim_r1=join(TRIMMED_DIR,"{sample}.R1.fq.gz"),
+        trim_r2=join(TRIMMED_DIR,"{sample}.R2.fq.gz")
+    output:
+        raw_r1=join(FASTQ_DIR,"{sample}.R1_fastqc.html"),
+        raw_r2=join(FASTQ_DIR,"{sample}.R2_fastqc.html"),
+        trim_r1=join(TRIMMED_DIR,"{sample}.R1_fastqc.html"),
+        trim_r2=join(TRIMMED_DIR,"{sample}.R2_fastqc.html")
+    shell:
+        """
+        fastqc -f fastq {input.raw_r1} {input.raw_r2}
+        fastqc -f fastq {input.trim_r1} {input.trim_r2}
+        """
+
+rule count_reads:
+    input:
+        raw_r1=join(FASTQ_DIR,"{sample}.R1.fq.gz"),
+        raw_r2=join(FASTQ_DIR,"{sample}.R2.fq.gz"),
+        clean_r1=join(CLEAN_DIR,"{sample}.R1.fq.gz"),
+        clean_r2=join(CLEAN_DIR,"{sample}.R2.fq.gz"),
+        trim_r1=join(TRIMMED_DIR,"{sample}.R1.fq.gz"),
+        trim_r2=join(TRIMMED_DIR,"{sample}.R2.fq.gz")
+    output:
+        counts_raw_r1=join(FASTQ_DIR,"{sample}.R1.count.txt"),
+        counts_raw_r2=join(FASTQ_DIR,"{sample}.R2.count.txt"),
+        counts_clean_r1=join(CLEAN_DIR,"{sample}.R1.count.txt"),
+        counts_clean_r2=join(CLEAN_DIR,"{sample}.R2.count.txt"),
+        counts_trim_r1=join(TRIMMED_DIR,"{sample}.R1.count.txt"),
+        counts_trim_r2=join(TRIMMED_DIR,"{sample}.R2.count.txt")
+    shell:
+        """
+        zcat {input.raw_r1} | wc -l | awk '{{print $1/4}}' > {output.counts_raw_r1}
+        zcat {input.raw_r2} | wc -l | awk '{{print $1/4}}' > {output.counts_raw_r2}
+        zcat {input.clean_r1} | wc -l | awk '{{print $1/4}}' > {output.counts_clean_r1}
+        zcat {input.clean_r1} | wc -l | awk '{{print $1/4}}' > {output.counts_clean_r2}
+        zcat {input.trim_r1} | wc -l | awk '{{print $1/4}}' > {output.counts_trim_r1}
+        zcat {input.trim_r2} | wc -l | awk '{{print $1/4}}' > {output.counts_trim_r2}
+        """
+
+rule bwa_align_donor:
+    input:
+        r1=join(TRIMMED_DIR,"{sample}.R1.fq.gz"),
+        r2=join(TRIMMED_DIR,"{sample}.R2.fq.gz"),
+        fna=join(DONOR_MAP_DIR,"{sample}.fasta"),
+        amb=join(DONOR_MAP_DIR,"{sample}.fasta.amb")
+    output:
+        bam1=join(DONOR_ALIGNED_DIR,'{sample}.donor.R1.bam'),
+        bai1=join(DONOR_ALIGNED_DIR,'{sample}.donor.R1.bam.bai'),
+        bam2=join(DONOR_ALIGNED_DIR,'{sample}.donor.R2.bam'),
+        bai2=join(DONOR_ALIGNED_DIR,'{sample}.donor.R2.bam.bai')
+    threads: 16
+    shell:
+        """
+        bwa mem -t {threads} {input.fna} {input.r1} | samtools view -@ {threads} -b -F 4 | samtools sort -@ {threads} > {output.bam1}
+        samtools index {output.bam1}
+        bwa mem -t {threads} {input.fna} {input.r2} | samtools view -@ {threads} -b -F 4 | samtools sort -@ {threads} > {output.bam2}
+        samtools index {output.bam2}
+        """
+
+rule bwa_align_donor_check:
+    input:
+        r1=join(TRIMMED_DIR,"{sample}.R1.fq.gz"),
+        r2=join(TRIMMED_DIR,"{sample}.R2.fq.gz"),
+        donor_check=join(DONOR_CHECK_DIR,"donor_check.fna"),
+        amb=join(DONOR_CHECK_DIR,"donor_check.fna.amb")
+    output:
+        bam1=join(DONOR_CHECK_ALIGNED_DIR,'{sample}.donor_check.R1.bam'),
+        bai1=join(DONOR_CHECK_ALIGNED_DIR,'{sample}.donor_check.R1.bam.bai'),
+        bam2=join(DONOR_CHECK_ALIGNED_DIR,'{sample}.donor_check.R2.bam'),
+        bai2=join(DONOR_CHECK_ALIGNED_DIR,'{sample}.donor_check.R2.bam.bai')
+    threads: 16
+    shell:
+        """
+        bwa mem -a -t {threads} {input.donor_check} {input.r1} | samtools view -@ {threads} -b -F 4 | samtools sort -@ {threads} > {output.bam1}
+        samtools index {output.bam1}
+        bwa mem -a -t {threads} {input.donor_check} {input.r2} | samtools view -@ {threads} -b -F 4 | samtools sort -@ {threads} > {output.bam2}
+        samtools index {output.bam2}
+        """
+
+rule bwa_align_human:
+    input:
+        r1=join(TRIMMED_DIR,"{sample}.R1.fq.gz"),
+        r2=join(TRIMMED_DIR,"{sample}.R2.fq.gz")
+    output:
+        bam1=join(HUMAN_ALIGNED_DIR,'{sample}.human.R1.bam'),
+        bai1=join(HUMAN_ALIGNED_DIR,'{sample}.human.R1.bam.bai'),
+        bam2=join(HUMAN_ALIGNED_DIR,'{sample}.human.R2.bam'),
+        bai2=join(HUMAN_ALIGNED_DIR,'{sample}.human.R2.bam.bai')
+    params:
+        genome=join(GENOME_DIR,'hg38.fna')
+    threads: 16
+    shell:
+        """
+        bwa mem -t {threads} {params.genome} {input.r1} | samtools view -@ {threads} -b -F 4 | samtools sort -@ {threads} > {output.bam1}
+        samtools index {output.bam1}
+        bwa mem -t {threads} {params.genome} {input.r2} | samtools view -@ {threads} -b -F 4 | samtools sort -@ {threads} > {output.bam2}
+        samtools index {output.bam2}
+        """
+
+rule analyze_reads:
+    input:
+        r1=join(TRIMMED_DIR,"{sample}.R1.fq.gz"),
+        human_bam1=join(HUMAN_ALIGNED_DIR,'{sample}.human.R1.bam'),
+        human_bam2=join(HUMAN_ALIGNED_DIR,'{sample}.human.R2.bam'),
+        donor_bam1=join(DONOR_ALIGNED_DIR,'{sample}.donor.R1.bam'),
+        donor_bam2=join(DONOR_ALIGNED_DIR,'{sample}.donor.R2.bam'),
+        donor_check_bam1=join(DONOR_CHECK_ALIGNED_DIR,'{sample}.donor_check.R1.bam'),
+        donor_check_bam2=join(DONOR_CHECK_ALIGNED_DIR,'{sample}.donor_check.R2.bam'),
+        bed=join(DONOR_MAP_DIR,"{sample}.bed")
+    output:
+        summary=join(READ_ANALYSIS_DIR,"{sample}.analysis.tsv.gz")
+    params:
+        sample='{sample}',
+        blacklist=join(BLACKLIST_DIR,'hg38.bed')
+    threads: 4 #temporary to prevent OOM error
+    run:
+        analyze_reads(input, output, params)
+
+rule get_junction_reads:
+    input:
+        summary=join(READ_ANALYSIS_DIR,"{sample}.analysis.tsv.gz"),
+        r1=join(TRIMMED_DIR,"{sample}.R1.fq.gz"),
+        r2=join(TRIMMED_DIR,"{sample}.R2.fq.gz")
+    output:
+        r1=join(JUNCTION_READS_DIR,"{sample}.junction.R1.fq.gz"),
+        r2=join(JUNCTION_READS_DIR,"{sample}.junction.R2.fq.gz")
+    run:
+        get_junction_reads(input,output)
+
+rule bwa_align_both_human:
+    input:
+        r1=join(JUNCTION_READS_DIR,"{sample}.junction.R1.fq.gz"),
+        r2=join(JUNCTION_READS_DIR,"{sample}.junction.R2.fq.gz")
+    output:
+        bam=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.bam'),
+        bai=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.bam.bai')
+    params:
+        genome=join(GENOME_DIR,'hg38.fna'),
+        blacklist=join(BLACKLIST_DIR,'hg38.bed')
+    threads: 16
+    shell:
+        """
+        bwa mem -t {threads} {params.genome} {input.r1} {input.r2} | samtools sort -@ {threads} | samtools view -h -q 30 | samtools view -h -F 2048 | awk '{{if ($1 ~ /^@/){{print}} else if ($9 > -1500 && $9 < 1500) {{print}}}}' | samtools view -h -b > {output.bam}
+        bedtools intersect -v -wa -a {output.bam} -b {params.blacklist} -wa > {output.bam}.tmp.bam
+        mv {output.bam}.tmp.bam {output.bam}
+        samtools index {output.bam}
+        """
+
+rule get_donor_reads:
+	input:
+		summary=join(READ_ANALYSIS_DIR, "{sample}.analysis.tsv.gz"),
+		r1=join(TRIMMED_DIR, "{sample}.R1.fq.gz"),
+		r2=join(TRIMMED_DIR, "{sample}.R2.fq.gz")
+	output:
+		r1=join(DONOR_READS_DIR, "{sample}.donor.R1.fq.gz"),
+		r2=join(DONOR_READS_DIR, "{sample}.donor.R2.fq.gz")
+	run:
+		get_donor_reads(input, output)
+
+rule bwa_align_both_donor:
+	input:
+		r1=join(DONOR_READS_DIR, "{sample}.donor.R1.fq.gz"),
+		r2=join(DONOR_READS_DIR, "{sample}.donor.R2.fq.gz"),
+		fna=join(DONOR_MAP_DIR, "{sample}.fasta"),
+		amb=join(DONOR_MAP_DIR, "{sample}.fasta.amb")
+	output:
+		bam = join(DONOR_BOTH_ALIGNED_DIR, '{sample}.donor.both.bam'),
+		bai = join(DONOR_BOTH_ALIGNED_DIR, '{sample}.donor.both.bam.bai'),
+	threads: 16
+	shell:
+		"""
+		bwa mem -t {threads} {input.fna} {input.r1} {input.r2} | samtools sort -@ {threads} | samtools view -h -q 30 | samtools view -h -q 30 | samtools view -h -F 2048 | samtools view -h -b > {output.bam}
+		samtools index {output.bam}
+		"""
+
+rule markdup:
+    input:
+        bam=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.bam'),
+        bai=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.bam.bai')
+    output:
+        collate=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.namecollate.bam'),
+        fixmate=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.fixmate.bam'),
+        psort=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.psort.bam'),
+        bam=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.markdup.bam'),
+        bai=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.markdup.bam.bai')
+    shell:
+        """
+        samtools collate -o {output.collate} {input.bam}
+        samtools fixmate -m {output.collate} {output.fixmate}
+        samtools sort -o {output.psort} {output.fixmate}
+        samtools markdup -r {output.psort} {output.bam}
+        samtools index {output.bam}
+        """
+
+rule mgefinder:
+    input:
+        bam=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.markdup.bam'),
+    output:
+        find=join(MGEFINDER_DIR,'{sample}.find.tsv')
+    params:
+        sample='{sample}'
+    shell:
+        """
+        mgefinder find -id {params.sample} -mcc 1 -mincount 1 {input.bam} -o {output.find}
+        """
+
+rule kmer_flanks:
+    input:
+        find=join(MGEFINDER_DIR,'{sample}.find.tsv'),
+        attd=join(DONOR_MAP_DIR,"{sample}.attd.fasta"),
+        donor_bed=join(DONOR_MAP_DIR,"{sample}.bed"),
+        donor_fasta=join(DONOR_MAP_DIR,"{sample}.fasta"),
+        genome_file=join(GENOME_DIR,"hg38.genome.txt")
+    output:
+        tsv=join(KMER_FLANKS_DIR,'{sample}.kmer_flanks.tsv'),
+        bed=join(KMER_FLANKS_DIR,'{sample}.kmer_flanks.bed')
+    params:
+        sample='{sample}'
+    run:
+        kmer_flanks(input,output,params)
+
+rule umi_counts:
+	input:
+		tsv=join(KMER_FLANKS_DIR, '{sample}.kmer_flanks.tsv'),
+		bam=join(HUMAN_BOTH_ALIGNED_DIR, '{sample}.human.both.bam')
+	output:
+		tsv=join(UMI_COUNTS_DIR, '{sample}.umi_counts.tsv')
+	params:
+		sample='{sample}',
+		genome_file=join(GENOME_DIR, "hg38.genome.txt")
+	run:
+		count_umis(input, output, params)
+
+rule donor_umi_counts:
+	input:
+		bam = join(DONOR_BOTH_ALIGNED_DIR, '{sample}.donor.both.bam'),
+	output:
+		tsv=join(UMI_COUNTS_DIR, '{sample}.donor_umi_counts.tsv')
+	params:
+		sample='{sample}'
+	run:
+		donor_count_umis(input, output, params)
+
+rule raw_counts:
+    input:
+        tsv=join(KMER_FLANKS_DIR,'{sample}.kmer_flanks.tsv'),
+        bam=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.bam'),
+        rmdup_bam=join(HUMAN_BOTH_ALIGNED_DIR,'{sample}.human.both.markdup.bam')
+    output:
+        tsv=join(RAW_COUNTS_DIR,'{sample}.raw_counts.tsv')
+    params:
+        sample='{sample}',
+        genome_file=join(GENOME_DIR,"hg38.genome.txt")
+    run:
+        count_raw(input,output,params)
+
+rule integration_sites:
+    input:
+        kmer_flanks=join(KMER_FLANKS_DIR,'{sample}.kmer_flanks.tsv'),
+        raw_counts=join(RAW_COUNTS_DIR,'{sample}.raw_counts.tsv'),
+        bed=join(KMER_FLANKS_DIR,'{sample}.kmer_flanks.bed'),
+        genome_file=join(GENOME_DIR,"hg38.genome.txt"),
+        genome=join(GENOME_DIR,'hg38.fna')
+    output:
+        sites=join(TARGET_SITES_DIR,'{sample}.sites.fna'),
+        curated=join(TARGET_SITES_DIR,'{sample}.sites.curated.fna'),
+        top=join(TARGET_SITES_DIR,'{sample}.sites.curated.top.fna'),
+    params:
+        slop=30,top=200,sample='{sample}'
+    run:
+        get_integration_sites(input,output,params)
+
+rule get_site_annotations:
+    input:
+        kmer_flanks=join(KMER_FLANKS_DIR,'{sample}.kmer_flanks.tsv'),
+    output:
+        annot=join(TARGET_SITES_DIR,'{sample}.sites.annotations.tsv')
+    params:
+        genes=join(GENOME_DIR,'hg38.genes.gff3'),
+        exons=join(GENOME_DIR,'hg38.exons.gff3'),
+        genome_file=join(GENOME_DIR,"hg38.genome.txt")
+    run:
+        get_site_annotations(input,output,params)
+
+rule finalize_counts:
+    input:
+        expand(join(CLEAN_DIR,"{sample}.R1.fq.gz"),sample=SAMPLES),
+        expand(join(FASTQ_DIR,"{sample}.R1.count.txt"),sample=SAMPLES),
+        expand(join(FASTQ_DIR,"{sample}.R1_fastqc.html"),sample=SAMPLES),
+        expand(join(RAW_COUNTS_DIR,'{sample}.raw_counts.tsv'), sample=SAMPLES),
+        expand(join(TARGET_SITES_DIR, '{sample}.sites.curated.top.fna'), sample=SAMPLES),
+        expand(join(TARGET_SITES_DIR, '{sample}.sites.annotations.tsv'), sample=SAMPLES),
+        expand(join(UMI_COUNTS_DIR, '{sample}.umi_counts.tsv'), sample=SAMPLES),
+        expand(join(UMI_COUNTS_DIR, '{sample}.donor_umi_counts.tsv'), sample=SAMPLES)
+    output:
+        raw_counts=join(RESULTS_DIR, "raw_counts.filtered.tsv"),
+        merged_counts_sample=join(RESULTS_DIR, "merged_counts.sample.tsv"),
+        merged_counts_biorep=join(RESULTS_DIR, "merged_counts.biorep.tsv"),
+        merged_counts_lsr=join(RESULTS_DIR, "merged_counts.lsr.tsv"),
+        sites=join(RESULTS_DIR, "all_integration_sites.fna"),
+        seqlogos=join(RESULTS_DIR, "seqlogos.txt")
+    params:
+        workdir=WD,
+        outdir=RESULTS_DIR,
+        genome=join(GENOME_DIR,'hg38.fna')
+    shell:
+        """
+        Rscript scripts/finalize_counts.R {params.workdir} {params.outdir}
+        python scripts/extract_integration_sites.py {params.outdir} {output.raw_counts} {params.genome} {output.sites}
+        Rscript scripts/seqlogos.R {params.outdir} {output.merged_counts_sample} {output.merged_counts_biorep} {output.merged_counts_lsr} {output.sites}
+        """
