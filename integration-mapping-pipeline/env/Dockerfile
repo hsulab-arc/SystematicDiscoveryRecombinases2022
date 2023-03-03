@@ -16,8 +16,8 @@ RUN apt-get update && \
 # RUN apt-get -y install vim less htop
 # DEBUG
 
-RUN conda install -y -c conda-forge python=3.8 mamba \
-    && conda update -n base -c defaults conda \
+RUN conda update -n base -c defaults conda && \
+    conda install -y -c conda-forge python=3.8 mamba &&  \
      && mamba install -y \
     -c conda-forge \
     -c bioconda \
