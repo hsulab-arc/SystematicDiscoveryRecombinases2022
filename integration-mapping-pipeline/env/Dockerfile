@@ -22,6 +22,7 @@ RUN conda update -n base -c defaults conda && \
     -c conda-forge \
     -c bioconda \
     -c r \
+    -c defaults \
     bowtie2 \
     bwa \
     cd-hit \
