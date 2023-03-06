@@ -12,6 +12,6 @@ RUN conda install -y -c conda-forge python=3.8 mamba && mamba install -y -c cond
 
 RUN mamba install -y -c conda-forge -c bioconda click pandas biopython pysam editdistance scipy networkx tqdm umi_tools pybedtools bioconductor-genomicranges bioconductor-genomicranges bioconductor-helloranges bioconductor-biostrings r-bedr r-ggseqlogo
 
-RUN pip install git+https://github.com/pdhsulab/MGEfinder-integration-mapping-pipeline.git
+RUN pip install git+https://github.com/hsulab-arc/MGEfinder-integration-mapping-pipeline.git
 
 WORKDIR /integration-mapping-pipeline/snakemake
