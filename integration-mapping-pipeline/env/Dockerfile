@@ -8,6 +8,8 @@ RUN apt-get -y update && apt-get -y install gcc make libbz2-dev zlib1g-dev libnc
 
 RUN conda update -n base -c defaults conda
 
+RUN conda config --set use_only_tar_bz2 True
+
 RUN conda install -y -c conda-forge python=3.8 mamba && mamba install -y -c conda-forge -c bioconda -c r snakemake samtools bowtie2 htslib emboss cd-hit bwa fastp fastqc r r-essentials
 
 RUN mamba install -y -c conda-forge -c bioconda click pandas biopython pysam editdistance scipy networkx tqdm umi_tools pybedtools bioconductor-genomicranges bioconductor-genomicranges bioconductor-helloranges bioconductor-biostrings r-bedr r-ggseqlogo
